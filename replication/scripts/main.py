@@ -19,8 +19,9 @@ def original_to_tum(indir, outdir):
     img_dir   = keydir / "images"
     depth_dir = keydir / "depth"
 
-    out_rgb   = outdir / "rgb"
-    out_depth = outdir / "depth"
+    tum_seq_dir = outdir / "rgbd_dataset_freiburg1_replica"
+    out_rgb   = tum_seq_dir / "rgb"
+    out_depth = tum_seq_dir / "depth"
     out_rgb.mkdir(parents=True, exist_ok=True)
     out_depth.mkdir(parents=True, exist_ok=True)
     
@@ -56,7 +57,7 @@ def original_to_tum(indir, outdir):
         current_image.save(out_rgb / (fname + ".png"))
 
 
-        current_depth = Image.open(depth_dir / (fname + ".jpg"))
+        current_depth = Image.open(depth_dir / (fname + ".png"))
         current_depth = Image.fromarray(np.array(current_depth, dtype=np.uint16), mode="I;16")
         current_depth = current_depth.resize((640, 480), Image.Resampling.NEAREST)
         current_depth.save(out_depth / (fname + ".png"))
@@ -79,27 +80,27 @@ def original_to_tum(indir, outdir):
                 f"0.000000 0.000000 1.000000 0.000000\n"
                 f"0.000000 0.000000 0.000000 1.000000\n"
             )
-            (outdir / "intrinsics.txt").write_text(intr_text)
+            (tum_seq_dir / "intrinsics.txt").write_text(intr_text)
 
-    (outdir / "rgb.txt").write_text(
+    (tum_seq_dir / "rgb.txt").write_text(
         "# timestamp filename\n" + "\n".join(rgb_files_txt_lines) + "\n"
     )
-    (outdir / "depth.txt").write_text(
+    (tum_seq_dir / "depth.txt").write_text(
         "# timestamp filename\n" + "\n".join(depth_files_txt_lines) + "\n"
     )
-    (outdir / "groundtruth.txt").write_text(
+    (tum_seq_dir / "groundtruth.txt").write_text(
         "# timestamp tx ty tz qx qy qz qw  (camera-to-world)\n"
         + "\n".join(ground_truths) + "\n"
     )
 
-    print(f"\nDone! Output written to {outdir}")
+    print(f"\nDone! Output written to {tum_seq_dir}")
     print(f"  rgb/        {len(list(out_rgb.glob('*.png')))} PNGs ")
     print(f"  depth/      {len(list(out_depth.glob('*.png')))} PNGs ")
     print(f"  associations.txt")
     print(f"  intrinsics.txt")
     print(f"  groundtruth.txt")
 
-    return outdir, len(file_assoaciations)
+    return tum_seq_dir.parent, len(rgb_files_txt_lines)
 
 
 def _read_intrinsics(seq_dir, device):
@@ -295,8 +296,14 @@ def run_all_techniques(tum_dir, img_count):
 
 
 def main():
-    data_dir   = pathlib.Path(__file__).parent / "data"        # .../replication/scripts/
+    script_dir = pathlib.Path(__file__).resolve().parent
+    data_dir   = script_dir.parent / "data"         # .../replication/data
+    if not data_dir.exists():
+        data_dir = script_dir / "data"               # fallback to .../replication/scripts/data
     original_dir = data_dir / "original"
+    if not original_dir.exists():
+        print(f"Data directory not found: {original_dir}")
+        return
     # make new tum dir for converted data
     tum_root     = data_dir / "tum"
     tum_root.mkdir(parents=True, exist_ok=True)
