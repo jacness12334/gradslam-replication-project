@@ -25,13 +25,16 @@ def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
     out_depth.mkdir(parents=True, exist_ok=True)
     
     file_assoaciations: list[str] = []
+    rgb_files_txt_lines:   list[str] = []
+    depth_files_txt_lines: list[str] = []
     ground_truths: list[str] = []
     intrinsics_written = False
 
-    for f in cam_dir.iterdir():
+    for f in sorted(cam_dir.iterdir()):
         fname: str = f.stem
-
-        file_assoaciations.append(f"{fname} rgb/{fname}.png {fname} depth/{fname}.png")
+        
+        rgb_files_txt_lines.append(f"{fname} rgb/{fname}.png")
+        depth_files_txt_lines.append(f"{fname} depth/{fname}.png")
 
         current_camera = json.loads(f.read_text())
         current_pose = np.array([
@@ -50,7 +53,7 @@ def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
         current_x, current_y = current_image.size
         current_image = current_image.convert("RGB")
         current_image = current_image.resize((640, 480), resample=Image.Resampling.LANCZOS)
-        current_image = current_image.save(out_depth / (fname + ".png"))
+        current_image.save(out_rgb / (fname + ".png"))
 
 
         current_depth = Image.open(depth_dir / (fname + ".jpg"))
@@ -78,7 +81,12 @@ def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
             )
             (outdir / "intrinsics.txt").write_text(intr_text)
 
-    (outdir / "associations.txt").write_text("\n".join(file_assoaciations) + "\n")
+    (outdir / "rgb.txt").write_text(
+        "# timestamp filename\n" + "\n".join(rgb_files_txt_lines) + "\n"
+    )
+    (outdir / "depth.txt").write_text(
+        "# timestamp filename\n" + "\n".join(depth_files_txt_lines) + "\n"
+    )
     (outdir / "groundtruth.txt").write_text(
         "# timestamp tx ty tz qx qy qz qw  (camera-to-world)\n"
         + "\n".join(ground_truths) + "\n"
@@ -92,6 +100,21 @@ def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
     print(f"  groundtruth.txt")
 
     return outdir, len(file_assoaciations)
+
+
+def _read_intrinsics(seq_dir: pathlib.Path, device: torch.device) -> torch.Tensor:
+    """
+    Read fx fy cx cy from our custom intrinsics.txt and return a (1,1,4,4)
+    camera-intrinsics tensor in the format gradslam expects.
+    """
+    lines = [l for l in (seq_dir / "intrinsics.txt").read_text().splitlines()
+             if l and not l.startswith("#")]
+    fx, fy, cx, cy = map(float, lines[0].split())
+    K = torch.tensor([[fx, 0., cx, 0.],
+                      [0., fy, cy, 0.],
+                      [0.,  0., 1., 0.],
+                      [0.,  0., 0., 1.]], dtype=torch.float32, device=device)
+    return K.unsqueeze(0).unsqueeze(0)   # (1, 1, 4, 4)
 
 def print_results(name: str, pointclouds: Pointclouds, recovered_poses: torch.Tensor, elapsed: float) -> None:
     n_pts = pointclouds.num_points_per_pointcloud[0].item() # pyright: ignore[reportUnknownVariableType, reportOptionalSubscript, reportUnknownMemberType]
@@ -193,6 +216,11 @@ def run_point_fusion(device: torch.device, rgbdimages_no_poses: RGBDImages):
 # tum dir is output dir, img count is returned from original to tum, device is 'cpu' or 'cuda'
 def run_all_techniques(tum_dir: pathlib.Path, img_count: int):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"\n{'═'*50}")
+    print(f"  Running all techniques on: {tum_dir.name}")
+    print(f"  Device: {device}  |  Frames: {img_count}")
+    print(f"{'═'*50}")
+
 
     dataset = TUM(
         basedir    = str(tum_dir.absolute()),
@@ -211,6 +239,10 @@ def run_all_techniques(tum_dir: pathlib.Path, img_count: int):
     depths     = depths.to(device)
     intrinsics = intrinsics.to(device)
     poses      = poses.to(device)
+
+    intrinsics = _read_intrinsics(tum_dir, device).expand(
+        colors.shape[0], colors.shape[1], -1, -1
+    )
 
     rgbdimages_with_poses = RGBDImages(
         rgb_image   = colors,
@@ -258,3 +290,50 @@ def run_all_techniques(tum_dir: pathlib.Path, img_count: int):
     ).to(device)
 
     run_ICP_SLAM(device=device, rgbdimages_with_poses=rgbdimages_with_poses)
+
+    run_point_fusion(device=device, rgbdimages_no_poses=rgbdimages_no_poses)
+
+
+def main() -> None:
+    data_dir   = pathlib.Path(__file__).parent / "data"        # .../replication/scripts/
+    original_dir = data_dir / "original"
+    # make new tum dir for converted data
+    tum_root     = data_dir / "tum"
+    tum_root.mkdir(parents=True, exist_ok=True)
+ 
+    scenes = sorted(p for p in original_dir.iterdir() if p.is_dir())
+    if not scenes:
+        print(f"No scene folders found under {original_dir}")
+        return
+ 
+    print(f"Found {len(scenes)} scene(s): {[s.name for s in scenes]}")
+ 
+    for scene_dir in scenes:
+        print(f"\n{'━'*60}")
+        print(f"  Scene: {scene_dir.name}")
+        print(f"{'━'*60}")
+ 
+        # Each scene becomes its own TUM sequence subdirectory.
+        seq_out = tum_root / scene_dir.name
+ 
+        try:
+            seq_dir, img_count = original_to_tum(scene_dir, seq_out)
+        except Exception as exc:
+            print(f"  [SKIP] Conversion failed: {exc}")
+            continue
+ 
+        if img_count == 0:
+            print("  [SKIP] No frames found after conversion.")
+            continue
+ 
+        try:
+            run_all_techniques(seq_dir, img_count)
+        except Exception as exc:
+            print(f"  [SKIP] SLAM failed: {exc}")
+            continue
+ 
+    print("\nAll scenes processed.")
+ 
+ 
+if __name__ == "__main__":
+    main()
