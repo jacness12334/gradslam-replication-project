@@ -1,3 +1,23 @@
+# GradSLAM replication project
+
+--------------------------------------------------------------------------------
+
+Jacob Phillips
+
+The original GRADSLAM README.md is shown following this message about replication.
+
+My current implementation uses the replication/ folder in order to show my code, and any other changes. It contains the data collected, the results displayed, and the script written.
+
+The script can:
+1. Intake data from the data collection method used and output the TUM format required by the repository
+2. Setup the converted TUM data in a way that can be used by the implemented gradSLAM techniques
+3. Run all of the techniques found in the paper on the setup data
+4. Loop through all data in a code-specified folder in order to generate a summary of the accuracy of the techniques.
+5. Generate plots and graphs based on the results obtained.
+
+Run it by using python ./replication/scripts/main.py. This will re-generate the datasets and attempt to run all of the 3 main gradslam techniques on them.
+
+--------------------------------------------------------------------------------
 
 ![](assets/gradslam-banner.png)
 
