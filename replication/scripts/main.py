@@ -13,7 +13,7 @@ from gradslam.structures.pointclouds import Pointclouds
 import time
 
 
-def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
+def original_to_tum(indir, outdir):
     keydir = indir / "keyframes"
     cam_dir   = keydir / "cameras"
     img_dir   = keydir / "images"
@@ -24,14 +24,14 @@ def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
     out_rgb.mkdir(parents=True, exist_ok=True)
     out_depth.mkdir(parents=True, exist_ok=True)
     
-    file_assoaciations: list[str] = []
-    rgb_files_txt_lines:   list[str] = []
-    depth_files_txt_lines: list[str] = []
-    ground_truths: list[str] = []
+    file_assoaciations = []
+    rgb_files_txt_lines = []
+    depth_files_txt_lines = []
+    ground_truths = []
     intrinsics_written = False
 
     for f in sorted(cam_dir.iterdir()):
-        fname: str = f.stem
+        fname = f.stem
         
         rgb_files_txt_lines.append(f"{fname} rgb/{fname}.png")
         depth_files_txt_lines.append(f"{fname} depth/{fname}.png")
@@ -102,7 +102,7 @@ def original_to_tum(indir: pathlib.Path, outdir: pathlib.Path):
     return outdir, len(file_assoaciations)
 
 
-def _read_intrinsics(seq_dir: pathlib.Path, device: torch.device) -> torch.Tensor:
+def _read_intrinsics(seq_dir, device):
     """
     Read fx fy cx cy from our custom intrinsics.txt and return a (1,1,4,4)
     camera-intrinsics tensor in the format gradslam expects.
@@ -116,8 +116,8 @@ def _read_intrinsics(seq_dir: pathlib.Path, device: torch.device) -> torch.Tenso
                       [0.,  0., 0., 1.]], dtype=torch.float32, device=device)
     return K.unsqueeze(0).unsqueeze(0)   # (1, 1, 4, 4)
 
-def print_results(name: str, pointclouds: Pointclouds, recovered_poses: torch.Tensor, elapsed: float) -> None:
-    n_pts = pointclouds.num_points_per_pointcloud[0].item() # pyright: ignore[reportUnknownVariableType, reportOptionalSubscript, reportUnknownMemberType]
+def print_results(name, pointclouds, recovered_poses, elapsed):
+    n_pts = pointclouds.num_points_per_pointcloud[0].item()
     print(f"\n{'─'*50}")
     print(f"  {name}")
     print(f"{'─'*50}")
@@ -125,13 +125,13 @@ def print_results(name: str, pointclouds: Pointclouds, recovered_poses: torch.Te
     print(f"  Poses shape    : {tuple(recovered_poses.shape)}")
     print(f"  Elapsed        : {elapsed:.1f}s")
     # Print first and last recovered pose translation (x,y,z)
-    t0 = recovered_poses[0, 0, :3, 3].tolist() # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-    tn = recovered_poses[0, -1,:3, 3].tolist() # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    t0 = recovered_poses[0, 0, :3, 3].tolist()
+    tn = recovered_poses[0, -1,:3, 3].tolist()
     print(f"  First pose t   : [{t0[0]:.3f}, {t0[1]:.3f}, {t0[2]:.3f}]")
     print(f"  Last  pose t   : [{tn[0]:.3f}, {tn[1]:.3f}, {tn[2]:.3f}]")
     print(f"{'─'*50}")
 
-def run_ICP(device: torch.device, seqlen: int, rgbdimages_no_poses: RGBDImages, slam_grad_icp: ICPSLAM) -> None:
+def run_ICP(device, seqlen, rgbdimages_no_poses, slam_grad_icp):
     
     t0 = time.time()
     pointclouds_odom = Pointclouds(device=device)
@@ -139,7 +139,7 @@ def run_ICP(device: torch.device, seqlen: int, rgbdimages_no_poses: RGBDImages, 
 
     for i in range(seqlen):
         live_frame = rgbdimages_no_poses[:, i : i + 1]   # slice → shape (1,1,480,640)
-        pointclouds_odom, _ = slam_grad_icp.step( # pyright: ignore[reportUnknownVariableType]
+        pointclouds_odom, _ = slam_grad_icp.step(
             pointclouds_odom,
             live_frame,
             prev_frame,        # None on first frame → uses the frame's own pose
@@ -147,12 +147,12 @@ def run_ICP(device: torch.device, seqlen: int, rgbdimages_no_poses: RGBDImages, 
         prev_frame = live_frame
 
     # Collect all poses back from the rgbdimages object
-    recovered_poses_odom = rgbdimages_no_poses.poses # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    recovered_poses_odom = rgbdimages_no_poses.poses
 
     print_results("ICP-Odometry (frame-to-frame)", pointclouds_odom,
-                recovered_poses_odom, time.time() - t0) # pyright: ignore[reportArgumentType]
+                recovered_poses_odom, time.time() - t0)
 
-def run_grad_ICP(device: torch.device, seqlen: int, rgbdimages_no_poses: RGBDImages, slam_grad_icp: ICPSLAM) -> None:
+def run_grad_ICP(device, seqlen, rgbdimages_no_poses, slam_grad_icp):
     
     t0 = time.time()
     pointclouds_odom = Pointclouds(device=device)
@@ -160,7 +160,7 @@ def run_grad_ICP(device: torch.device, seqlen: int, rgbdimages_no_poses: RGBDIma
 
     for i in range(seqlen):
         live_frame = rgbdimages_no_poses[:, i : i + 1]   # slice → shape (1,1,480,640)
-        pointclouds_odom, _ = slam_grad_icp.step( # pyright: ignore[reportUnknownVariableType]
+        pointclouds_odom, _ = slam_grad_icp.step(
             pointclouds_odom,
             live_frame,
             prev_frame,        # None on first frame → uses the frame's own pose
@@ -168,13 +168,13 @@ def run_grad_ICP(device: torch.device, seqlen: int, rgbdimages_no_poses: RGBDIma
         prev_frame = live_frame
 
     # Collect all poses back from the rgbdimages object
-    recovered_poses_odom = rgbdimages_no_poses.poses # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    recovered_poses_odom = rgbdimages_no_poses.poses
 
     print_results("∇ICP-Odometry (frame-to-frame)", pointclouds_odom,
-                recovered_poses_odom, time.time() - t0) # pyright: ignore[reportArgumentType]
+                recovered_poses_odom, time.time() - t0)
 
     
-def run_ICP_SLAM(device: torch.device, rgbdimages_with_poses: RGBDImages):
+def run_ICP_SLAM(device, rgbdimages_with_poses):
 
     slam_icp_slam = ICPSLAM(
         odom     = "gt",
@@ -194,7 +194,7 @@ def run_ICP_SLAM(device: torch.device, rgbdimages_with_poses: RGBDImages):
     
     pointclouds_slam.plotly(0).show()
 
-def run_point_fusion(device: torch.device, rgbdimages_no_poses: RGBDImages):
+def run_point_fusion(device, rgbdimages_no_poses):
     slam_pf = PointFusion(
         dist_th  = 0.05,    # merge surfels within 5cm of each other
         angle_th = 20,      # merge surfels within 20° normal angle
@@ -214,7 +214,7 @@ def run_point_fusion(device: torch.device, rgbdimages_no_poses: RGBDImages):
     pointclouds_pf.plotly(0).show()
 
 # tum dir is output dir, img count is returned from original to tum, device is 'cpu' or 'cuda'
-def run_all_techniques(tum_dir: pathlib.Path, img_count: int):
+def run_all_techniques(tum_dir, img_count):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"\n{'═'*50}")
     print(f"  Running all techniques on: {tum_dir.name}")
@@ -233,7 +233,7 @@ def run_all_techniques(tum_dir: pathlib.Path, img_count: int):
         return_pose       = True,
     )
 
-    loader: torch.utils.data.DataLoader[Tuple[Any, ...]] = torch.utils.data.DataLoader(dataset, batch_size=1)  # pyright: ignore[reportUnknownVariableType]
+    loader = torch.utils.data.DataLoader(dataset, batch_size=1)
     colors, depths, intrinsics, poses, *_ = next(iter(loader))
     colors     = colors.to(device)
     depths     = depths.to(device)
@@ -294,7 +294,7 @@ def run_all_techniques(tum_dir: pathlib.Path, img_count: int):
     run_point_fusion(device=device, rgbdimages_no_poses=rgbdimages_no_poses)
 
 
-def main() -> None:
+def main():
     data_dir   = pathlib.Path(__file__).parent / "data"        # .../replication/scripts/
     original_dir = data_dir / "original"
     # make new tum dir for converted data
