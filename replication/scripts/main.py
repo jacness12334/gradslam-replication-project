@@ -36,6 +36,7 @@ def original_to_tum(indir, outdir):
         
         rgb_files_txt_lines.append(f"{fname} rgb/{fname}.png")
         depth_files_txt_lines.append(f"{fname} depth/{fname}.png")
+        file_assoaciations.append(f"{fname} rgb/{fname}.png {fname} depth/{fname}.png")
 
         current_camera = json.loads(f.read_text())
         current_pose = np.array([
@@ -88,6 +89,9 @@ def original_to_tum(indir, outdir):
     (tum_seq_dir / "depth.txt").write_text(
         "# timestamp filename\n" + "\n".join(depth_files_txt_lines) + "\n"
     )
+    (tum_seq_dir / "associations.txt").write_text(
+        "# rgb_timestamp rgb_filename depth_timestamp depth_filename\n" + "\n".join(file_assoaciations) + "\n"
+    )
     (tum_seq_dir / "groundtruth.txt").write_text(
         "# timestamp tx ty tz qx qy qz qw  (camera-to-world)\n"
         + "\n".join(ground_truths) + "\n"
@@ -108,7 +112,9 @@ def _read_intrinsics(seq_dir, device):
     Read fx fy cx cy from our custom intrinsics.txt and return a (1,1,4,4)
     camera-intrinsics tensor in the format gradslam expects.
     """
-    lines = [l for l in (seq_dir / "intrinsics.txt").read_text().splitlines()
+    # intrinsics.txt is in the rgbd_dataset_freiburg1_replica subdirectory
+    intrinsics_path = seq_dir / "rgbd_dataset_freiburg1_replica" / "intrinsics.txt"
+    lines = [l for l in intrinsics_path.read_text().splitlines()
              if l and not l.startswith("#")]
     fx, fy, cx, cy = map(float, lines[0].split())
     K = torch.tensor([[fx, 0., cx, 0.],
@@ -241,9 +247,8 @@ def run_all_techniques(tum_dir, img_count):
     intrinsics = intrinsics.to(device)
     poses      = poses.to(device)
 
-    intrinsics = _read_intrinsics(tum_dir, device).expand(
-        colors.shape[0], colors.shape[1], -1, -1
-    )
+    # Use custom intrinsics read from the dataset
+    intrinsics = _read_intrinsics(tum_dir, device)
 
     rgbdimages_with_poses = RGBDImages(
         rgb_image   = colors,
@@ -266,13 +271,7 @@ def run_all_techniques(tum_dir, img_count):
         device   = device,
     )
 
-    run_ICP(device=device, seqlen=img_count, rgbdimages_no_poses=rgbdimages_no_poses, slam_grad_icp=slam_icp)
-
-    rgbdimages_no_poses = RGBDImages(
-        rgb_image   = colors,
-        depth_image = depths,
-        intrinsics  = intrinsics,
-    ).to(device)
+    run_ICP(device=device, seqlen=img_count, rgbdimages_no_poses=rgbdimages_with_poses, slam_grad_icp=slam_icp)
 
     slam_grad_icp = ICPSLAM(
         odom     = 'gradicp',         # 'gradicp' → ∇LM;  'icp' → classic LM
@@ -282,7 +281,7 @@ def run_all_techniques(tum_dir, img_count):
         device   = device,
     )
 
-    run_grad_ICP(device=device, seqlen=img_count, rgbdimages_no_poses=rgbdimages_no_poses, slam_grad_icp=slam_grad_icp)
+    run_grad_ICP(device=device, seqlen=img_count, rgbdimages_no_poses=rgbdimages_with_poses, slam_grad_icp=slam_grad_icp)
     
     rgbdimages_no_poses = RGBDImages(
         rgb_image   = colors,
